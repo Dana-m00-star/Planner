@@ -54,6 +54,10 @@ FEATURES = [
 ]
 
 
+# ==============================
+# تصميم التطبيق والألوان
+# ==============================
+
 st.markdown("""
 <style>
 .stApp {
@@ -132,6 +136,10 @@ hr {
 """, unsafe_allow_html=True)
 
 
+# ==============================
+# قراءة المهام وحفظها
+# ==============================
+
 def load_tasks():
 
     try:
@@ -141,8 +149,10 @@ def load_tasks():
             keep_default_na=False
         )
 
-    except FileNotFoundError:
+    except (FileNotFoundError, pd.errors.EmptyDataError):
+
         df = pd.DataFrame(columns=COLUMNS)
+        df.to_csv(FILE_NAME, index=False)
 
     for column in COLUMNS:
         if column not in df.columns:
@@ -167,6 +177,10 @@ def load_tasks():
 def save_tasks(df):
     df.to_csv(FILE_NAME, index=False)
 
+
+# ==============================
+# تجهيز البيانات للتحليل والنموذج
+# ==============================
 
 def prepare_analysis_data(data):
 
@@ -282,6 +296,10 @@ def prepare_analysis_data(data):
     return df, category_columns
 
 
+# ==============================
+# تحويل مدة المهمة إلى نص
+# ==============================
+
 def show_duration(value):
 
     try:
@@ -302,6 +320,10 @@ def show_duration(value):
 
     return " و ".join(parts) if parts else "0 دقيقة"
 
+
+# ==============================
+# تحميل بيانات المستخدم
+# ==============================
 
 tasks = load_tasks()
 
@@ -325,9 +347,12 @@ completion_rate = (
 )
 
 
+# ==============================
+# القائمة الرئيسية
+# ==============================
+
 st.title("Planner")
 st.caption("نظّم مهامك، تابع إنجازك، وخَلّ يومك أسهل")
-
 
 page = st.sidebar.radio(
     "القائمة الرئيسية",
@@ -340,6 +365,10 @@ page = st.sidebar.radio(
     ]
 )
 
+
+# ==================================================
+# الصفحة الأولى: مهامي
+# ==================================================
 
 if page == "مهامي":
 
@@ -375,6 +404,7 @@ if page == "مهامي":
     displayed = active_tasks.copy()
 
     if search:
+
         displayed = displayed[
             displayed["task_name"]
             .astype(str)
@@ -386,16 +416,19 @@ if page == "مهامي":
         ]
 
     if filter_status == "مكتملة":
+
         displayed = displayed[
             displayed["status"] == "complete"
         ]
 
     elif filter_status == "غير مكتملة":
+
         displayed = displayed[
             displayed["status"] == "incomplete"
         ]
 
     if filter_category != "الكل":
+
         displayed = displayed[
             displayed["category"] == filter_category
         ]
@@ -480,6 +513,8 @@ if page == "مهامي":
                 st.session_state["editing_task"] = task_id
                 st.rerun()
 
+    # تعديل المهمة
+
     if "editing_task" in st.session_state:
 
         task_id = st.session_state["editing_task"]
@@ -547,6 +582,7 @@ if page == "مهامي":
             if save_edit:
 
                 if not new_name.strip():
+
                     st.error("اكتب اسم المهمة.")
 
                 else:
@@ -567,9 +603,14 @@ if page == "مهامي":
                     st.rerun()
 
             if st.button("إلغاء التعديل"):
+
                 del st.session_state["editing_task"]
                 st.rerun()
 
+
+# ==================================================
+# الصفحة الثانية: إضافة مهمة
+# ==================================================
 
 elif page == "إضافة مهمة":
 
@@ -669,6 +710,10 @@ elif page == "إضافة مهمة":
             st.rerun()
 
 
+# ==================================================
+# الصفحة الثالثة: سلة المحذوفات
+# ==================================================
+
 elif page == "سلة المحذوفات":
 
     st.header("سلة المحذوفات")
@@ -715,6 +760,10 @@ elif page == "سلة المحذوفات":
                     save_tasks(tasks)
                     st.rerun()
 
+
+# ==================================================
+# الصفحة الرابعة: التحليلات الشخصية
+# ==================================================
 
 elif page == "تحليل البيانات":
 
@@ -810,6 +859,10 @@ elif page == "تحليل البيانات":
             st.bar_chart(daily)
 
 
+# ==================================================
+# الصفحة الخامسة: التوقعات والتوصيات
+# ==================================================
+
 elif page == "التوقعات والتوصيات":
 
     st.header("التوقعات والتوصيات")
@@ -831,6 +884,15 @@ elif page == "التوقعات والتوصيات":
         st.error(
             "ملف training_tasks.csv غير موجود. "
             "أضيفيه إلى المستودع بجانب app.py."
+        )
+
+        st.stop()
+
+    except pd.errors.EmptyDataError:
+
+        st.error(
+            "ملف training_tasks.csv فارغ. "
+            "تأكدي من رفع بيانات التدريب الصحيحة."
         )
 
         st.stop()
@@ -931,6 +993,8 @@ elif page == "التوقعات والتوصيات":
         "ولا تضمن إنجاز مهمة مستقبلية."
     )
 
+    # العوامل المؤثرة
+
     st.subheader("أهم العوامل المؤثرة على الإنجاز")
 
     importance = pd.Series(
@@ -974,6 +1038,8 @@ elif page == "التوقعات والتوصيات":
     )
 
     st.divider()
+
+    # توقع مهمة جديدة
 
     st.subheader("توقع مهمة جديدة")
 
@@ -1111,6 +1177,8 @@ elif page == "التوقعات والتوصيات":
             )
 
     st.divider()
+
+    # توصيات الفريق
 
     st.subheader("توصيات مستخلصة من بيانات الفريق")
 
