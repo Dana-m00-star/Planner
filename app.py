@@ -98,9 +98,11 @@ h1, h2, h3, h4, p, label, .stMarkdown,
 }
 
 .stButton > button,
-.stFormSubmitButton > button {
+.stButton > button *,
+.stFormSubmitButton > button,
+.stFormSubmitButton > button * {
     background-color: #F3EBDD;
-    color: #192B49;
+    color: #192B49 !important;
     border: 1px solid #D9CCB8;
     border-radius: 10px;
     font-weight: bold;
@@ -109,7 +111,7 @@ h1, h2, h3, h4, p, label, .stMarkdown,
 .stButton > button:hover,
 .stFormSubmitButton > button:hover {
     background-color: #A9D6F5;
-    color: #192B49;
+    color: #192B49 !important;
     border-color: #A9D6F5;
 }
 
@@ -769,9 +771,7 @@ elif page == "تحليل البيانات":
 
     st.header("التحليلات الشخصية")
 
-    st.caption(
-        "هذه التحليلات تعتمد على مهامك الموجودة في tasks.csv فقط."
-    )
+   
 
     if active_tasks.empty:
 
@@ -867,10 +867,7 @@ elif page == "التوقعات والتوصيات":
 
     st.header("التوقعات والتوصيات")
 
-    st.caption(
-        "النموذج يتعلم من بيانات الفريق فقط، "
-        "ولا يعرض مهام الفريق في قائمة مهامك."
-    )
+   
 
     try:
 
