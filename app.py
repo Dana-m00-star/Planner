@@ -1,9 +1,76 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+from datetime import datetime, date
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+
+st.set_page_config(
+    page_title="Planner | سجل المهام",
+    page_icon="💙",
+    layout="wide"
+)
+
+FILE_NAME = "tasks.csv"
+
+CATEGORIES = {
+    "study": "دراسة",
+    "home": "بيت",
+    "exercise": "رياضة",
+    "personal": "شخصي"
+}
+
+PRIORITIES = {
+    "high": "عالية",
+    "medium": "متوسطة",
+    "low": "منخفضة"
+}
+
+STATUS_NAMES = {
+    "complete": "مكتملة",
+    "incomplete": "غير مكتملة"
+}
+
+COLUMNS = [
+    "task_id",
+    "task_name",
+    "created_date",
+    "due_date",
+    "estimated_minutes",
+    "status",
+    "completed_date",
+    "category",
+    "priority",
+    "deleted_date"
+]
+
+
+def load_tasks():
+    try:
+        df = pd.read_csv(FILE_NAME)
+    except FileNotFoundError:
+        df = pd.DataFrame(columns=COLUMNS)
+
+    for column in COLUMNS:
+        if column not in df.columns:
+            df[column] = ""
+
+    df["task_id"] = pd.to_numeric(
+        df["task_id"], errors="coerce"
+    )
+
+    df["estimated_minutes"] = pd.to_numeric(
+        df["estimated_minutes"], errors="coerce"
+    ).fillna(0)
+
+    df["deleted_date"] = df["deleted_date"].fillna("")
+    df["completed_date"] = df["completed_date"].fillna("")
+
+    return df[COLUMNS]
+
+
+def save_tasks(df):
+    df.to_csv(FILE_NAME, index=False)
 
 
 def prepare_analysis_data(data):
@@ -20,7 +87,11 @@ def prepare_analysis_data(data):
     }
 
     df["target"] = (
-        df["status"].astype(str).str.strip().str.lower().map(status_map)
+        df["status"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .map(status_map)
     )
 
     priority_map = {
@@ -33,7 +104,11 @@ def prepare_analysis_data(data):
     }
 
     df["priority_num"] = (
-        df["priority"].astype(str).str.strip().str.lower().map(priority_map)
+        df["priority"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .map(priority_map)
     )
 
     df["created_date"] = pd.to_datetime(
@@ -70,58 +145,452 @@ def prepare_analysis_data(data):
         df["category"], prefix="cat"
     ).astype(int)
 
-    df = pd.concat([df, category_dummies], axis=1)
+    df = pd.concat(
+        [df, category_dummies],
+        axis=1
+    )
 
     return df, category_dummies.columns.tolist()
 
 
-st.divider()
+tasks = load_tasks()
 
 st.markdown("""
-<div style="
-    background:linear-gradient(110deg,#192B49,#263D60);
-    padding:22px;
-    border-radius:16px;
-    border:1px solid #C8A66A;
-">
-    <h2 style="color:#E0C58F;margin:0;">
-        التحليلات الذكية
-    </h2>
-    <p style="color:#F3EBDD;margin:5px 0 0;">
-        تحليل إنجاز مهامك والتنبؤ باحتمالية إنجاز المهام الجديدة
-    </p>
-</div>
+<style>
+.stApp {
+    background-color: #F3EBDD;
+}
+[data-testid="stSidebar"] {
+    background-color: #192B49;
+}
+[data-testid="stSidebar"] * {
+    color: #F3EBDD;
+}
+h1, h2, h3 {
+    color: #192B49;
+}
+.stButton button {
+    border-radius: 10px;
+}
+</style>
 """, unsafe_allow_html=True)
 
-analysis_tab, model_tab = st.tabs([
-    "تحليل البيانات",
-    "التوقعات والتوصيات"
-])
+st.title("Planner 💙")
+st.caption("نظّم مهامك، تابع إنجازك، وخَلّ يومك أسهل")
+
+page = st.sidebar.radio(
+    "القائمة الرئيسية",
+    [
+        "مهامي",
+        "إضافة مهمة",
+        "سلة المحذوفات",
+        "تحليل البيانات",
+        "التوقعات والتوصيات"
+    ]
+)
+
+active_tasks = tasks[
+    tasks["deleted_date"].astype(str).eq("")
+].copy()
+
+completed_count = (
+    active_tasks["status"].astype(str) == "complete"
+).sum()
+
+incomplete_count = len(active_tasks) - completed_count
+
+completion_rate = (
+    completed_count / len(active_tasks) * 100
+    if len(active_tasks) else 0
+)
+
+if page == "مهامي":
+
+    st.header("مهامي")
+
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric("إجمالي المهام", len(active_tasks))
+    c2.metric("المهام المكتملة", int(completed_count))
+    c3.metric("المهام المتبقية", int(incomplete_count))
+
+    st.progress(
+        int(completion_rate),
+        text=f"نسبة الإنجاز: {completion_rate:.1f}%"
+    )
+
+    st.divider()
+
+    search = st.text_input("ابحث عن مهمة")
+
+    filter_status = st.selectbox(
+        "حالة المهمة",
+        ["الكل", "مكتملة", "غير مكتملة"]
+    )
+
+    filter_category = st.selectbox(
+        "التصنيف",
+        ["الكل"] + list(CATEGORIES.keys()),
+        format_func=lambda x: "الكل" if x == "الكل" else CATEGORIES[x]
+    )
+
+    displayed_tasks = active_tasks.copy()
+
+    if search:
+        displayed_tasks = displayed_tasks[
+            displayed_tasks["task_name"]
+            .astype(str)
+            .str.contains(search, case=False, na=False)
+        ]
+
+    if filter_status == "مكتملة":
+        displayed_tasks = displayed_tasks[
+            displayed_tasks["status"] == "complete"
+        ]
+
+    elif filter_status == "غير مكتملة":
+        displayed_tasks = displayed_tasks[
+            displayed_tasks["status"] == "incomplete"
+        ]
+
+    if filter_category != "الكل":
+        displayed_tasks = displayed_tasks[
+            displayed_tasks["category"] == filter_category
+        ]
+
+    if displayed_tasks.empty:
+        st.info("لا توجد مهام لعرضها.")
+
+    for _, task in displayed_tasks.iterrows():
+
+        task_id = task["task_id"]
+
+        with st.container(border=True):
+
+            st.subheader(str(task["task_name"]))
+
+            category_name = CATEGORIES.get(
+                task["category"], task["category"]
+            )
+
+            priority_name = PRIORITIES.get(
+                task["priority"], task["priority"]
+            )
+
+            st.write(f"التصنيف: {category_name}")
+            st.write(f"الأولوية: {priority_name}")
+
+            st.write(
+                f"تاريخ الاستحقاق: {task['due_date']}"
+            )
+
+            st.write(
+                f"المدة المتوقعة: {int(task['estimated_minutes'])} دقيقة"
+            )
+
+            is_complete = task["status"] == "complete"
+
+            new_status = st.checkbox(
+                "مكتملة",
+                value=is_complete,
+                key=f"complete_{task_id}"
+            )
+
+            if new_status != is_complete:
+
+                index = tasks.index[
+                    tasks["task_id"] == task_id
+                ]
+
+                if new_status:
+                    tasks.loc[index, "status"] = "complete"
+                    tasks.loc[index, "completed_date"] = (
+                        datetime.now().strftime("%Y-%m-%d %H:%M")
+                    )
+                else:
+                    tasks.loc[index, "status"] = "incomplete"
+                    tasks.loc[index, "completed_date"] = ""
+
+                save_tasks(tasks)
+                st.rerun()
+
+            col1, col2 = st.columns(2)
+
+            if col1.button(
+                "حذف المهمة",
+                key=f"delete_{task_id}"
+            ):
+
+                index = tasks.index[
+                    tasks["task_id"] == task_id
+                ]
+
+                tasks.loc[index, "deleted_date"] = (
+                    datetime.now().strftime("%Y-%m-%d %H:%M")
+                )
+
+                save_tasks(tasks)
+                st.rerun()
+
+            if col2.button(
+                "تعديل المهمة",
+                key=f"edit_{task_id}"
+            ):
+
+                st.session_state["editing_task"] = int(task_id)
+                st.rerun()
+
+    if "editing_task" in st.session_state:
+
+        task_id = st.session_state["editing_task"]
+
+        selected = tasks[
+            tasks["task_id"] == task_id
+        ]
+
+        if not selected.empty:
+
+            task = selected.iloc[0]
+
+            st.divider()
+            st.subheader("تعديل المهمة")
+
+            with st.form("edit_task_form"):
+
+                new_name = st.text_input(
+                    "اسم المهمة",
+                    value=str(task["task_name"])
+                )
+
+                new_category = st.selectbox(
+                    "التصنيف",
+                    list(CATEGORIES.keys()),
+                    index=list(CATEGORIES.keys()).index(task["category"])
+                    if task["category"] in CATEGORIES else 0,
+                    format_func=lambda x: CATEGORIES[x]
+                )
+
+                new_priority = st.selectbox(
+                    "الأولوية",
+                    list(PRIORITIES.keys()),
+                    index=list(PRIORITIES.keys()).index(task["priority"])
+                    if task["priority"] in PRIORITIES else 0,
+                    format_func=lambda x: PRIORITIES[x]
+                )
+
+                new_due = st.date_input(
+                    "تاريخ الاستحقاق",
+                    value=pd.to_datetime(
+                        task["due_date"], errors="coerce"
+                    ).date()
+                    if pd.notna(pd.to_datetime(
+                        task["due_date"], errors="coerce"
+                    )) else date.today()
+                )
+
+                new_duration = st.number_input(
+                    "المدة بالدقائق",
+                    min_value=1,
+                    value=max(1, int(task["estimated_minutes"]))
+                )
+
+                save_edit = st.form_submit_button("حفظ التعديل")
+
+            if save_edit:
+
+                index = tasks.index[
+                    tasks["task_id"] == task_id
+                ]
+
+                tasks.loc[index, "task_name"] = new_name
+                tasks.loc[index, "category"] = new_category
+                tasks.loc[index, "priority"] = new_priority
+                tasks.loc[index, "due_date"] = new_due.strftime("%Y-%m-%d")
+                tasks.loc[index, "estimated_minutes"] = new_duration
+
+                save_tasks(tasks)
+
+                del st.session_state["editing_task"]
+                st.rerun()
+
+            if st.button("إلغاء التعديل"):
+                del st.session_state["editing_task"]
+                st.rerun()
 
 
-with analysis_tab:
+elif page == "إضافة مهمة":
 
-    st.subheader("نظرة عامة على بياناتك")
+    st.header("إضافة مهمة جديدة")
 
-    analysis_tasks = tasks[
-        tasks["deleted_date"].astype(str).eq("")
+    with st.form("add_task_form"):
+
+        task_name = st.text_input("اسم المهمة")
+
+        category = st.selectbox(
+            "التصنيف",
+            list(CATEGORIES.keys()),
+            format_func=lambda x: CATEGORIES[x]
+        )
+
+        priority = st.selectbox(
+            "الأولوية",
+            list(PRIORITIES.keys()),
+            format_func=lambda x: PRIORITIES[x]
+        )
+
+        due_date = st.date_input(
+            "تاريخ الاستحقاق",
+            value=date.today()
+        )
+
+        days = st.number_input(
+            "المدة بالأيام",
+            min_value=0,
+            value=0
+        )
+
+        hours = st.number_input(
+            "المدة بالساعات",
+            min_value=0,
+            value=1
+        )
+
+        minutes = st.number_input(
+            "المدة بالدقائق",
+            min_value=0,
+            max_value=59,
+            value=0
+        )
+
+        add_button = st.form_submit_button(
+            "إضافة المهمة",
+            use_container_width=True
+        )
+
+    if add_button:
+
+        if not task_name.strip():
+            st.error("اكتب اسم المهمة أولًا.")
+
+        elif days == 0 and hours == 0 and minutes == 0:
+            st.error("أدخل مدة متوقعة للمهمة.")
+
+        else:
+
+            new_id = (
+                int(tasks["task_id"].max()) + 1
+                if tasks["task_id"].notna().any()
+                else 1
+            )
+
+            estimated_minutes = (
+                int(days) * 1440
+                + int(hours) * 60
+                + int(minutes)
+            )
+
+            new_task = {
+                "task_id": new_id,
+                "task_name": task_name.strip(),
+                "created_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "due_date": due_date.strftime("%Y-%m-%d"),
+                "estimated_minutes": estimated_minutes,
+                "status": "incomplete",
+                "completed_date": "",
+                "category": category,
+                "priority": priority,
+                "deleted_date": ""
+            }
+
+            tasks = pd.concat(
+                [tasks, pd.DataFrame([new_task])],
+                ignore_index=True
+            )
+
+            save_tasks(tasks)
+
+            st.success("تمت إضافة المهمة بنجاح.")
+            st.rerun()
+
+
+elif page == "سلة المحذوفات":
+
+    st.header("سلة المحذوفات")
+
+    deleted_tasks = tasks[
+        tasks["deleted_date"].astype(str).ne("")
     ].copy()
 
-    if analysis_tasks.empty:
+    if deleted_tasks.empty:
 
-        st.info("أضف بعض المهام أولًا حتى تظهر التحليلات.")
+        st.info("سلة المحذوفات فارغة.")
+
+    else:
+
+        for _, task in deleted_tasks.iterrows():
+
+            task_id = task["task_id"]
+
+            with st.container(border=True):
+
+                st.subheader(str(task["task_name"]))
+
+                col1, col2 = st.columns(2)
+
+                if col1.button(
+                    "استعادة",
+                    key=f"restore_{task_id}"
+                ):
+
+                    index = tasks.index[
+                        tasks["task_id"] == task_id
+                    ]
+
+                    tasks.loc[index, "deleted_date"] = ""
+
+                    save_tasks(tasks)
+                    st.rerun()
+
+                if col2.button(
+                    "حذف نهائي",
+                    key=f"permanent_{task_id}"
+                ):
+
+                    tasks = tasks[
+                        tasks["task_id"] != task_id
+                    ]
+
+                    save_tasks(tasks)
+                    st.rerun()
+
+
+elif page == "تحليل البيانات":
+
+    st.header("التحليلات الذكية")
+
+    st.write(
+        "تحليل إنجاز المهام والتعرف على أنماط العمل."
+    )
+
+    if active_tasks.empty:
+
+        st.info("أضف مهامًا حتى تظهر التحليلات.")
 
     else:
 
         df_analysis, category_columns = prepare_analysis_data(
-            analysis_tasks
+            active_tasks
         )
 
         total = len(df_analysis)
-        completed = int(df_analysis["target"].fillna(0).sum())
+        completed = int(
+            df_analysis["target"].fillna(0).sum()
+        )
         incomplete = total - completed
 
-        completion_rate = completed / total * 100 if total else 0
+        completion_rate = (
+            completed / total * 100 if total else 0
+        )
 
         c1, c2, c3, c4 = st.columns(4)
 
@@ -136,7 +605,7 @@ with analysis_tab:
 
         st.progress(
             int(completion_rate),
-            text=f"{completion_rate:.1f}% من المهام تم إنجازها"
+            text=f"{completion_rate:.1f}%"
         )
 
         st.subheader("إنجاز المهام حسب التصنيف")
@@ -186,15 +655,12 @@ with analysis_tab:
         )
 
         if not daily_completion.empty:
-
             st.bar_chart(daily_completion)
-
             st.info(
                 f"أكثر يوم إنجازًا: {daily_completion.idxmax()}"
             )
-
         else:
-            st.info("لا توجد مهام منجزة بتاريخ إنجاز مسجل.")
+            st.info("لا توجد تواريخ إنجاز مسجلة.")
 
         st.divider()
 
@@ -237,29 +703,37 @@ with analysis_tab:
                 <= on_time_df["due_date"]
             )
 
-            on_time_rate = on_time_df["on_time"].mean() * 100
+            on_time_rate = (
+                on_time_df["on_time"].mean() * 100
+            )
+
             late_rate = 100 - on_time_rate
 
             x, y = st.columns(2)
 
-            x.metric("الإنجاز في الموعد", f"{on_time_rate:.1f}%")
-            y.metric("الإنجاز المتأخر", f"{late_rate:.1f}%")
+            x.metric(
+                "الإنجاز في الموعد",
+                f"{on_time_rate:.1f}%"
+            )
+
+            y.metric(
+                "الإنجاز المتأخر",
+                f"{late_rate:.1f}%"
+            )
 
         else:
-            st.info("لا توجد بيانات كافية لتحليل الالتزام بالمواعيد.")
+            st.info("لا توجد بيانات كافية لتحليل المواعيد.")
 
 
-with model_tab:
+elif page == "التوقعات والتوصيات":
 
-    st.subheader("نموذج توقع إنجاز المهام")
+    st.header("التوقعات والتوصيات")
 
     st.write(
         "يتعلم النموذج من المهام السابقة لتقدير احتمال إنجاز مهمة جديدة."
     )
 
-    ml_tasks = tasks[
-        tasks["deleted_date"].astype(str).eq("")
-    ].copy()
+    ml_tasks = active_tasks.copy()
 
     if len(ml_tasks) < 10:
 
@@ -379,7 +853,9 @@ with model_tab:
                 for name in importance.index
             ]
 
-            importance = importance.sort_values(ascending=False) * 100
+            importance = (
+                importance.sort_values(ascending=False) * 100
+            )
 
             st.bar_chart(importance)
 
@@ -446,8 +922,8 @@ with model_tab:
 
                 category_choice = st.selectbox(
                     "التصنيف",
-                    list(CATEGORY_NAMES.keys()),
-                    format_func=lambda x: CATEGORY_NAMES[x]
+                    list(CATEGORIES.keys()),
+                    format_func=lambda x: CATEGORIES[x]
                 )
 
                 duration = st.number_input(
@@ -482,7 +958,9 @@ with model_tab:
                     [new_row]
                 )[features]
 
-                probability = model.predict_proba(new_task)[0]
+                probability = model.predict_proba(
+                    new_task
+                )[0]
 
                 complete_index = list(
                     model.classes_
@@ -492,7 +970,7 @@ with model_tab:
                     probability[complete_index] * 100
                 )
 
-                st.markdown("### نتيجة التوقع")
+                st.subheader("نتيجة التوقع")
 
                 st.metric(
                     "احتمال إنجاز المهمة",
@@ -601,8 +1079,13 @@ with model_tab:
 
             if not long_tasks.empty and not short_tasks.empty:
 
-                long_rate = long_tasks["target"].mean() * 100
-                short_rate = short_tasks["target"].mean() * 100
+                long_rate = (
+                    long_tasks["target"].mean() * 100
+                )
+
+                short_rate = (
+                    short_tasks["target"].mean() * 100
+                )
 
                 if long_rate < short_rate:
 
