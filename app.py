@@ -94,9 +94,8 @@ h1, h2, h3, h4, p, label, .stMarkdown,
     color: #F3EBDD;
 }
 
-/* خلفية البطاقات والحاويات */
 [data-testid="stVerticalBlockBorderWrapper"] {
-    background-color: #F3EBDD !important;
+    background-color: #F3EBDD;
     border: 1px solid #D9CCB8;
     border-radius: 14px;
     padding: 12px;
@@ -106,35 +105,6 @@ h1, h2, h3, h4, p, label, .stMarkdown,
     color: #192B49;
 }
 
-/* خلفية عناصر الإدخال */
-.stTextInput input,
-.stNumberInput input,
-.stDateInput input,
-.stSelectbox div[data-baseweb="select"] > div,
-.stTextArea textarea {
-    background-color: #F3EBDD !important;
-    color: #192B49 !important;
-    border-color: #D9CCB8 !important;
-}
-
-/* خلفية القوائم المنسدلة */
-[data-baseweb="popover"],
-[data-baseweb="menu"] {
-    background-color: #F3EBDD !important;
-}
-
-[data-baseweb="menu"] * {
-    color: #192B49 !important;
-}
-
-/* خلفية الحقول داخل النماذج */
-[data-testid="stForm"] {
-    background-color: #F3EBDD;
-    padding: 15px;
-    border-radius: 14px;
-}
-
-/* ألوان الأزرار */
 .stButton > button,
 .stFormSubmitButton > button {
     background-color: #192B49 !important;
@@ -161,15 +131,14 @@ h1, h2, h3, h4, p, label, .stMarkdown,
     color: #192B49 !important;
 }
 
-/* النصوص داخل النماذج والبطاقات */
-[data-testid="stForm"] label,
-[data-testid="stForm"] p,
-[data-testid="stForm"] span,
-[data-testid="stForm"] div {
+.stTextInput input,
+.stNumberInput input,
+.stDateInput input,
+.stSelectbox div[data-baseweb="select"] > div {
+    background-color: #F3EBDD;
     color: #192B49;
 }
 
-/* عناوين الحقول */
 .stTextInput label,
 .stNumberInput label,
 .stDateInput label,
@@ -178,41 +147,12 @@ h1, h2, h3, h4, p, label, .stMarkdown,
     color: #F3EBDD !important;
 }
 
-/* الفواصل */
 hr {
     border-color: #F3EBDD;
 }
 
-/* التنبيهات */
 [data-testid="stAlert"] {
     border-radius: 10px;
-}
-
-/* خلفية مربعات الاختيار */
-[data-testid="stCheckbox"] {
-    color: #192B49;
-}
-
-/* خلفية الجداول */
-[data-testid="stDataFrame"] {
-    background-color: #F3EBDD;
-    border-radius: 10px;
-}
-
-/* شريط التقدم */
-.stProgress > div > div {
-    background-color: #A9D6F5;
-}
-
-/* خلفية المقاييس */
-[data-testid="stMetric"] {
-    background-color: #F3EBDD;
-    padding: 12px;
-    border-radius: 12px;
-}
-
-[data-testid="stMetric"] * {
-    color: #192B49 !important;
 }
 </style>
 """, unsafe_allow_html=True)
