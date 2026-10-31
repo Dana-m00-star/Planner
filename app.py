@@ -15,6 +15,10 @@ st.set_page_config(
 
 TRAINING_FILE = "training_tasks.csv"
 
+BEIGE = "#F3EBDD"
+NAVY = "#192B49"
+BABY_BLUE = "#A9D6F5"
+
 CATEGORIES = {
     "study": "دراسة",
     "home": "بيت",
@@ -90,8 +94,9 @@ h1, h2, h3, h4, p, label, .stMarkdown,
     color: #F3EBDD;
 }
 
+/* خلفية البطاقات والحاويات */
 [data-testid="stVerticalBlockBorderWrapper"] {
-    background-color: #F3EBDD;
+    background-color: #F3EBDD !important;
     border: 1px solid #D9CCB8;
     border-radius: 14px;
     padding: 12px;
@@ -101,6 +106,35 @@ h1, h2, h3, h4, p, label, .stMarkdown,
     color: #192B49;
 }
 
+/* خلفية عناصر الإدخال */
+.stTextInput input,
+.stNumberInput input,
+.stDateInput input,
+.stSelectbox div[data-baseweb="select"] > div,
+.stTextArea textarea {
+    background-color: #F3EBDD !important;
+    color: #192B49 !important;
+    border-color: #D9CCB8 !important;
+}
+
+/* خلفية القوائم المنسدلة */
+[data-baseweb="popover"],
+[data-baseweb="menu"] {
+    background-color: #F3EBDD !important;
+}
+
+[data-baseweb="menu"] * {
+    color: #192B49 !important;
+}
+
+/* خلفية الحقول داخل النماذج */
+[data-testid="stForm"] {
+    background-color: #F3EBDD;
+    padding: 15px;
+    border-radius: 14px;
+}
+
+/* ألوان الأزرار */
 .stButton > button,
 .stFormSubmitButton > button {
     background-color: #192B49 !important;
@@ -127,14 +161,15 @@ h1, h2, h3, h4, p, label, .stMarkdown,
     color: #192B49 !important;
 }
 
-.stTextInput input,
-.stNumberInput input,
-.stDateInput input,
-.stSelectbox div[data-baseweb="select"] > div {
-    background-color: #F3EBDD;
+/* النصوص داخل النماذج والبطاقات */
+[data-testid="stForm"] label,
+[data-testid="stForm"] p,
+[data-testid="stForm"] span,
+[data-testid="stForm"] div {
     color: #192B49;
 }
 
+/* عناوين الحقول */
 .stTextInput label,
 .stNumberInput label,
 .stDateInput label,
@@ -143,12 +178,41 @@ h1, h2, h3, h4, p, label, .stMarkdown,
     color: #F3EBDD !important;
 }
 
+/* الفواصل */
 hr {
     border-color: #F3EBDD;
 }
 
+/* التنبيهات */
 [data-testid="stAlert"] {
     border-radius: 10px;
+}
+
+/* خلفية مربعات الاختيار */
+[data-testid="stCheckbox"] {
+    color: #192B49;
+}
+
+/* خلفية الجداول */
+[data-testid="stDataFrame"] {
+    background-color: #F3EBDD;
+    border-radius: 10px;
+}
+
+/* شريط التقدم */
+.stProgress > div > div {
+    background-color: #A9D6F5;
+}
+
+/* خلفية المقاييس */
+[data-testid="stMetric"] {
+    background-color: #F3EBDD;
+    padding: 12px;
+    border-radius: 12px;
+}
+
+[data-testid="stMetric"] * {
+    color: #192B49 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -616,6 +680,10 @@ def prepare_analysis_data(data):
 
 tasks = load_tasks()
 
+if st.session_state.pop("task_added", False):
+    st.success("تمت إضافة المهمة بنجاح 💙")
+
+
 active_tasks = tasks[
     tasks["deleted_date"].astype(str).eq("")
 ].copy()
@@ -624,11 +692,16 @@ deleted_tasks = tasks[
     tasks["deleted_date"].astype(str).ne("")
 ].copy()
 
-completed_count = int(
-    (active_tasks["status"] == "complete").sum()
-)
+completed_tasks = active_tasks[
+    active_tasks["status"] == "complete"
+].copy()
 
-incomplete_count = len(active_tasks) - completed_count
+incomplete_tasks = active_tasks[
+    active_tasks["status"] == "incomplete"
+].copy()
+
+completed_count = len(completed_tasks)
+incomplete_count = len(incomplete_tasks)
 
 completion_rate = (
     completed_count / len(active_tasks) * 100
@@ -654,7 +727,7 @@ st.markdown(
         font-size:18px;
         font-weight:bold;
     ">
-        💙 أهلًا
+        💙 أهلًا، {username}
     </div>
     """,
     unsafe_allow_html=True
@@ -664,6 +737,7 @@ page = st.sidebar.radio(
     "القائمة الرئيسية",
     [
         "مهامي",
+        "المهام المكتملة",
         "إضافة مهمة",
         "سلة المحذوفات",
         "تحليل البيانات",
@@ -700,11 +774,6 @@ if page == "مهامي":
 
     search = st.text_input("ابحث عن مهمة")
 
-    filter_status = st.selectbox(
-        "حالة المهمة",
-        ["الكل", "مكتملة", "غير مكتملة"]
-    )
-
     filter_category = st.selectbox(
         "التصنيف",
         ["الكل"] + list(CATEGORIES.keys()),
@@ -712,7 +781,7 @@ if page == "مهامي":
         "الكل" if x == "الكل" else CATEGORIES[x]
     )
 
-    displayed = active_tasks.copy()
+    displayed = incomplete_tasks.copy()
 
     if search:
         displayed = displayed[
@@ -725,23 +794,13 @@ if page == "مهامي":
             )
         ]
 
-    if filter_status == "مكتملة":
-        displayed = displayed[
-            displayed["status"] == "complete"
-        ]
-
-    elif filter_status == "غير مكتملة":
-        displayed = displayed[
-            displayed["status"] == "incomplete"
-        ]
-
     if filter_category != "الكل":
         displayed = displayed[
             displayed["category"] == filter_category
         ]
 
     if displayed.empty:
-        st.info("لا توجد مهام لعرضها.")
+        st.info("لا توجد مهام غير مكتملة لعرضها.")
 
     for _, task in displayed.iterrows():
 
@@ -759,35 +818,36 @@ if page == "مهامي":
                 f"الأولوية: {PRIORITIES.get(task['priority'], task['priority'])}"
             )
 
-            st.write(f"تاريخ الاستحقاق: {task['due_date']}")
+            parsed_due_date = pd.to_datetime(
+                task["due_date"],
+                errors="coerce"
+            )
+
+            due_date_display = (
+                parsed_due_date.strftime("%Y-%m-%d")
+                if pd.notna(parsed_due_date)
+                else "غير محدد"
+            )
+
+            st.write(f"تاريخ الاستحقاق: {due_date_display}")
 
             st.write(
                 f"المدة المتوقعة: {show_duration(task['estimated_minutes'])}"
             )
 
-            is_complete = task["status"] == "complete"
-
             new_status = st.checkbox(
                 "مكتملة",
-                value=is_complete,
+                value=False,
                 key=f"complete_{task_id}"
             )
 
-            if new_status != is_complete:
+            if new_status:
 
                 update_task(
                     task_id,
                     {
-                        "status": (
-                            "complete"
-                            if new_status
-                            else "incomplete"
-                        ),
-                        "completed_date": (
-                            datetime.now().isoformat()
-                            if new_status
-                            else None
-                        )
+                        "status": "complete",
+                        "completed_date": datetime.now().isoformat()
                     }
                 )
 
@@ -909,6 +969,72 @@ if page == "مهامي":
                 st.rerun()
 
 
+elif page == "المهام المكتملة":
+
+    st.header("المهام المكتملة 💙")
+
+    completed_tasks = active_tasks[
+        active_tasks["status"] == "complete"
+    ].copy()
+
+    if completed_tasks.empty:
+
+        st.info("ما عندك مهام مكتملة حتى الآن.")
+
+    else:
+
+        st.success(f"أنجزت {len(completed_tasks)} مهمة!")
+
+        for _, task in completed_tasks.iterrows():
+
+            task_id = int(task["task_id"])
+
+            with st.container(border=True):
+
+                st.subheader(str(task["task_name"]))
+
+                st.write(
+                    f"التصنيف: {CATEGORIES.get(task['category'], task['category'])}"
+                )
+
+                st.write(
+                    f"الأولوية: {PRIORITIES.get(task['priority'], task['priority'])}"
+                )
+
+                st.write(
+                    f"المدة المتوقعة: {show_duration(task['estimated_minutes'])}"
+                )
+
+                if task["completed_date"]:
+
+                    completed_date = pd.to_datetime(
+                        task["completed_date"],
+                        errors="coerce"
+                    )
+
+                    if pd.notna(completed_date):
+
+                        st.write(
+                            "تاريخ الإنجاز: "
+                            + completed_date.strftime("%Y-%m-%d %H:%M")
+                        )
+
+                if st.button(
+                    "إرجاع إلى مهامي",
+                    key=f"undo_complete_{task_id}"
+                ):
+
+                    update_task(
+                        task_id,
+                        {
+                            "status": "incomplete",
+                            "completed_date": None
+                        }
+                    )
+
+                    st.rerun()
+
+
 elif page == "إضافة مهمة":
 
     st.header("إضافة مهمة جديدة")
@@ -989,11 +1115,12 @@ elif page == "إضافة مهمة":
 
             try:
                 add_task(new_task)
-                st.success("تمت إضافة المهمة بنجاح.")
+                st.session_state["task_added"] = True
                 st.rerun()
 
-            except Exception:
+            except Exception as e:
                 st.error("تعذر حفظ المهمة. حاول مرة أخرى.")
+                st.exception(e)
 
 
 elif page == "سلة المحذوفات":
@@ -1143,7 +1270,6 @@ elif page == "التوقعات والتوصيات":
 
     st.header("التوقعات والتوصيات")
 
-    
     try:
 
         training_data = pd.read_csv(
