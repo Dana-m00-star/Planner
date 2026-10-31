@@ -686,7 +686,7 @@ page = st.sidebar.radio(
 )
 
 st.sidebar.divider()
-st.sidebar.write(f"أهلًا، {username}")
+st.sidebar.write(f"عُد مجدداً")
 
 if st.sidebar.button(
     "تسجيل الخروج",
