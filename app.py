@@ -1,10 +1,7 @@
-import re
 import streamlit as st
 import pandas as pd
-
 from datetime import datetime, date
 from supabase import create_client, Client
-
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
@@ -193,24 +190,6 @@ def show_duration(value):
     return " و ".join(parts) if parts else "0 دقيقة"
 
 
-def normalize_username(username):
-    return username.strip().lower()
-
-
-def username_to_email(username):
-    safe_username = normalize_username(username)
-    return f"{safe_username}@planner.invalid"
-
-
-def valid_username(username):
-    return bool(
-        re.fullmatch(
-            r"[a-zA-Z0-9_]{3,20}",
-            username.strip()
-        )
-    )
-
-
 def get_current_user():
     access_token = st.session_state.get("access_token")
     refresh_token = st.session_state.get("refresh_token")
@@ -257,6 +236,25 @@ def save_session(session, username):
     st.session_state["username"] = username
 
 
+def get_saved_username(user_id):
+    try:
+        result = (
+            supabase.table("profiles")
+            .select("username")
+            .eq("user_id", str(user_id))
+            .single()
+            .execute()
+        )
+
+        if result.data and result.data.get("username"):
+            return result.data["username"]
+
+    except Exception:
+        pass
+
+    return "مستخدم"
+
+
 def logout():
     try:
         supabase.auth.sign_out()
@@ -299,8 +297,11 @@ def show_auth_page():
             st.subheader("مرحبًا بعودتك")
 
             with st.form("login_form"):
-                username = st.text_input("اسم المستخدم")
-                password = st.text_input("كلمة المرور", type="password")
+                email = st.text_input("البريد الإلكتروني")
+                password = st.text_input(
+                    "كلمة المرور",
+                    type="password"
+                )
 
                 login_button = st.form_submit_button(
                     "تسجيل الدخول",
@@ -308,42 +309,43 @@ def show_auth_page():
                 )
 
             if login_button:
-                if not username.strip() or not password:
-                    st.error("أدخل اسم المستخدم وكلمة المرور.")
-
-                elif not valid_username(username):
-                    st.error(
-                        "اسم المستخدم يجب أن يكون من 3 إلى 20 حرفًا أو رقمًا أو شرطة سفلية."
-                    )
+                if not email.strip() or not password:
+                    st.error("أدخل البريد الإلكتروني وكلمة المرور.")
 
                 else:
                     try:
                         result = supabase.auth.sign_in_with_password({
-                            "email": username_to_email(username),
+                            "email": email.strip().lower(),
                             "password": password
                         })
 
-                        if result.session:
+                        if result.session and result.user:
+                            username = get_saved_username(result.user.id)
+
                             save_session(
                                 result.session,
-                                normalize_username(username)
+                                username
                             )
+
                             st.success("تم تسجيل الدخول بنجاح.")
                             st.rerun()
+
                         else:
                             st.error("تعذر تسجيل الدخول. تحقق من بياناتك.")
 
                     except Exception:
-                        st.error("اسم المستخدم أو كلمة المرور غير صحيحة.")
+                        st.error("البريد الإلكتروني أو كلمة المرور غير صحيحة.")
 
         with tab_register:
             st.subheader("إنشاء حساب جديد")
 
             with st.form("register_form"):
                 new_username = st.text_input(
-                    "اسم المستخدم",
-                    help="من 3 إلى 20 حرفًا أو رقمًا أو شرطة سفلية."
+                    "الاسم",
+                    help="هذا الاسم سيظهر في أعلى Planner."
                 )
+
+                email = st.text_input("البريد الإلكتروني")
 
                 new_password = st.text_input(
                     "كلمة المرور",
@@ -361,12 +363,11 @@ def show_auth_page():
                 )
 
             if register_button:
-                clean_username = normalize_username(new_username)
+                clean_username = new_username.strip()
+                clean_email = email.strip().lower()
 
-                if not valid_username(new_username):
-                    st.error(
-                        "اسم المستخدم يجب أن يكون من 3 إلى 20 حرفًا أو رقمًا أو شرطة سفلية."
-                    )
+                if not clean_username or not clean_email or not new_password:
+                    st.error("يرجى تعبئة جميع الحقول.")
 
                 elif len(new_password) < 8:
                     st.error("كلمة المرور يجب ألا تقل عن 8 أحرف.")
@@ -377,7 +378,7 @@ def show_auth_page():
                 else:
                     try:
                         result = supabase.auth.sign_up({
-                            "email": username_to_email(clean_username),
+                            "email": clean_email,
                             "password": new_password,
                             "options": {
                                 "data": {
@@ -386,18 +387,23 @@ def show_auth_page():
                             }
                         })
 
-                        if result.session:
-                            save_session(result.session, clean_username)
+                        if result.session and result.user:
+                            save_session(
+                                result.session,
+                                clean_username
+                            )
+
                             st.success("تم إنشاء حسابك بنجاح.")
                             st.rerun()
+
                         else:
-                            st.error(
-                                "لم يتم إنشاء جلسة دخول. تأكدي من تعطيل تأكيد البريد الإلكتروني في Supabase."
+                            st.success(
+                                "تم إنشاء الحساب. تحقق من بريدك الإلكتروني لتأكيده، "
+                                "ثم سجّل الدخول."
                             )
 
                     except Exception as e:
                         st.error(f"تعذر إنشاء الحساب: {str(e)}")
-                         
 
     st.divider()
     st.caption("كل حساب لديه مساحة خاصة لمهامه وتحليلاته.")
@@ -411,6 +417,10 @@ if current_user is None:
 
 
 user_id = str(current_user.id)
+
+if "username" not in st.session_state:
+    st.session_state["username"] = get_saved_username(user_id)
+
 username = st.session_state.get("username", "مستخدم")
 
 
