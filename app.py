@@ -459,8 +459,9 @@ def load_tasks():
 
         return df[COLUMNS]
 
-    except Exception:
-        st.error("تعذر تحميل المهام من قاعدة البيانات.")
+    except Exception as e:
+        st.error(f"خطأ تحميل المهام: {type(e).__name__}")
+        st.exception(e)
         st.stop()
 
 
