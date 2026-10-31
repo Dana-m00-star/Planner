@@ -654,7 +654,7 @@ st.markdown(
         font-size:18px;
         font-weight:bold;
     ">
-        أهلًا، {username} 💙
+        💙 أهلًا
     </div>
     """,
     unsafe_allow_html=True
@@ -1143,11 +1143,7 @@ elif page == "التوقعات والتوصيات":
 
     st.header("التوقعات والتوصيات")
 
-    st.info(
-        "النموذج يتعلم من بيانات الفريق الموجودة في training_tasks.csv فقط. "
-        "لن تُضاف مهام حسابك الشخصية إلى بيانات التدريب."
-    )
-
+    
     try:
 
         training_data = pd.read_csv(
