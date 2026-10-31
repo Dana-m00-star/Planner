@@ -395,8 +395,8 @@ def show_auth_page():
                                 "لم يتم إنشاء جلسة دخول. تأكدي من تعطيل تأكيد البريد الإلكتروني في Supabase."
                             )
 
-                   except Exception as e:
-                       st.error(f"تعذر إنشاء الحساب: {str(e)}")
+                    except Exception as e:
+                        st.error(f"تعذر إنشاء الحساب: {str(e)}")
                          )
 
     st.divider()
