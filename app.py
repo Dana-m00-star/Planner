@@ -712,7 +712,7 @@ if page == "مهامي":
 
     st.divider()
 
-        st.subheader("🔔 تنبيهات المهام")
+    st.subheader("🔔 تنبيهات المهام")
 
     pending_tasks = active_tasks[
         active_tasks["status"] == "incomplete"
