@@ -712,6 +712,54 @@ if page == "مهامي":
 
     st.divider()
 
+        st.subheader("🔔 تنبيهات المهام")
+
+    pending_tasks = active_tasks[
+        active_tasks["status"] == "incomplete"
+    ].copy()
+
+    now = pd.Timestamp.now(tz="Asia/Riyadh").tz_localize(None)
+
+    overdue_tasks = []
+    today_tasks = []
+    upcoming_tasks = []
+
+    for _, task in pending_tasks.iterrows():
+        due = pd.to_datetime(task["due_date"], errors="coerce")
+
+        if pd.isna(due):
+            continue
+
+        if due.tzinfo is not None:
+            due = due.tz_convert("Asia/Riyadh").tz_localize(None)
+
+        if due < now and due.date() < now.date():
+            overdue_tasks.append(task["task_name"])
+        elif due.date() == now.date():
+            today_tasks.append(task["task_name"])
+        elif now < due <= now + pd.Timedelta(days=1):
+            upcoming_tasks.append(task["task_name"])
+
+    if overdue_tasks:
+        st.error("🔴 انتهى موعد هذه المهام:")
+        for name in overdue_tasks:
+            st.write(f"• {name}")
+
+    if today_tasks:
+        st.warning("🟡 موعد هذه المهام اليوم:")
+        for name in today_tasks:
+            st.write(f"• {name}")
+
+    if upcoming_tasks:
+        st.info("🔵 اقترب موعد هذه المهام (خلال 24 ساعة):")
+        for name in upcoming_tasks:
+            st.write(f"• {name}")
+
+    if not overdue_tasks and not today_tasks and not upcoming_tasks:
+        st.success("💚 ما عندك مهام متأخرة أو قريبة من موعدها!")
+    
+    st.divider()
+
     search = st.text_input("ابحث عن مهمة")
 
     filter_category = st.selectbox(
