@@ -1,9 +1,14 @@
+import re
 import streamlit as st
 import pandas as pd
+
 from datetime import datetime, date
+from supabase import create_client, Client
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+
 
 st.set_page_config(
     page_title="Planner | سجل المهام",
@@ -11,7 +16,6 @@ st.set_page_config(
     layout="wide"
 )
 
-FILE_NAME = "tasks.csv"
 TRAINING_FILE = "training_tasks.csv"
 
 CATEGORIES = {
@@ -54,10 +58,6 @@ FEATURES = [
 ]
 
 
-# ==============================
-# تصميم التطبيق والألوان
-# ==============================
-
 st.markdown("""
 <style>
 .stApp {
@@ -75,6 +75,13 @@ st.markdown("""
 
 [data-testid="stSidebar"] * {
     color: #192B49 !important;
+}
+
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span {
+    font-weight: 600;
+    font-size: 16px;
 }
 
 h1, h2, h3, h4, p, label, .stMarkdown,
@@ -98,21 +105,29 @@ h1, h2, h3, h4, p, label, .stMarkdown,
 }
 
 .stButton > button,
-.stButton > button *,
-.stFormSubmitButton > button,
-.stFormSubmitButton > button * {
-    background-color: #F3EBDD;
-    color: #192B49 !important;
-    border: 1px solid #D9CCB8;
+.stFormSubmitButton > button {
+    background-color: #192B49 !important;
+    color: #F3EBDD !important;
+    border: 1px solid #192B49 !important;
     border-radius: 10px;
     font-weight: bold;
 }
 
+.stButton > button *,
+.stFormSubmitButton > button * {
+    color: #F3EBDD !important;
+}
+
 .stButton > button:hover,
 .stFormSubmitButton > button:hover {
-    background-color: #A9D6F5;
+    background-color: #A9D6F5 !important;
     color: #192B49 !important;
-    border-color: #A9D6F5;
+    border-color: #A9D6F5 !important;
+}
+
+.stButton > button:hover *,
+.stFormSubmitButton > button:hover * {
+    color: #192B49 !important;
 }
 
 .stTextInput input,
@@ -134,58 +149,350 @@ h1, h2, h3, h4, p, label, .stMarkdown,
 hr {
     border-color: #F3EBDD;
 }
+
+[data-testid="stAlert"] {
+    border-radius: 10px;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ==============================
-# قراءة المهام وحفظها
-# ==============================
+def get_supabase_client():
+    if "supabase_client" not in st.session_state:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+        st.session_state["supabase_client"] = create_client(url, key)
 
-def load_tasks():
+    return st.session_state["supabase_client"]
 
+
+try:
+    supabase: Client = get_supabase_client()
+except Exception:
+    st.error("تعذر الاتصال بـ Supabase. راجعي إعدادات Secrets في Streamlit.")
+    st.stop()
+
+
+def show_duration(value):
     try:
-        df = pd.read_csv(
-            FILE_NAME,
-            dtype={"task_id": str},
-            keep_default_na=False
+        total = max(0, int(float(value)))
+    except (TypeError, ValueError):
+        total = 0
+
+    parts = []
+
+    if total // 1440:
+        parts.append(f"{total // 1440} يوم")
+
+    if (total % 1440) // 60:
+        parts.append(f"{(total % 1440) // 60} ساعة")
+
+    if total % 60:
+        parts.append(f"{total % 60} دقيقة")
+
+    return " و ".join(parts) if parts else "0 دقيقة"
+
+
+def normalize_username(username):
+    return username.strip().lower()
+
+
+def username_to_email(username):
+    safe_username = normalize_username(username)
+    return f"{safe_username}@planner.invalid"
+
+
+def valid_username(username):
+    return bool(
+        re.fullmatch(
+            r"[a-zA-Z0-9_]{3,20}",
+            username.strip()
         )
-
-    except (FileNotFoundError, pd.errors.EmptyDataError):
-
-        df = pd.DataFrame(columns=COLUMNS)
-        df.to_csv(FILE_NAME, index=False)
-
-    for column in COLUMNS:
-        if column not in df.columns:
-            df[column] = ""
-
-    df["task_id"] = pd.to_numeric(
-        df["task_id"],
-        errors="coerce"
     )
 
-    df["estimated_minutes"] = pd.to_numeric(
-        df["estimated_minutes"],
-        errors="coerce"
-    ).fillna(0)
 
-    df["deleted_date"] = df["deleted_date"].fillna("")
-    df["completed_date"] = df["completed_date"].fillna("")
+def get_current_user():
+    access_token = st.session_state.get("access_token")
+    refresh_token = st.session_state.get("refresh_token")
 
-    return df[COLUMNS]
+    if not access_token or not refresh_token:
+        return None
+
+    try:
+        result = supabase.auth.set_session(
+            access_token,
+            refresh_token
+        )
+
+        if result and result.user:
+            return result.user
+
+        result = supabase.auth.get_user()
+
+        if result and result.user:
+            return result.user
+
+    except Exception:
+        try:
+            refreshed = supabase.auth.refresh_session(refresh_token)
+
+            if refreshed and refreshed.session:
+                st.session_state["access_token"] = refreshed.session.access_token
+                st.session_state["refresh_token"] = refreshed.session.refresh_token
+                return refreshed.user
+
+        except Exception:
+            pass
+
+    st.session_state.pop("access_token", None)
+    st.session_state.pop("refresh_token", None)
+    st.session_state.pop("username", None)
+
+    return None
 
 
-def save_tasks(df):
-    df.to_csv(FILE_NAME, index=False)
+def save_session(session, username):
+    st.session_state["access_token"] = session.access_token
+    st.session_state["refresh_token"] = session.refresh_token
+    st.session_state["username"] = username
 
 
-# ==============================
-# تجهيز البيانات للتحليل والنموذج
-# ==============================
+def logout():
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
+
+    for key in [
+        "access_token",
+        "refresh_token",
+        "username",
+        "editing_task"
+    ]:
+        st.session_state.pop(key, None)
+
+    st.rerun()
+
+
+def show_auth_page():
+    st.markdown(
+        "<h1 style='text-align:center;'>Planner 💙</h1>",
+        unsafe_allow_html=True
+    )
+
+    st.markdown(
+        "<p style='text-align:center;'>نظّم مهامك، تابع إنجازك، وخَلّ يومك أسهل</p>",
+        unsafe_allow_html=True
+    )
+
+    st.divider()
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        tab_login, tab_register = st.tabs([
+            "تسجيل الدخول",
+            "إنشاء حساب"
+        ])
+
+        with tab_login:
+            st.subheader("مرحبًا بعودتك")
+
+            with st.form("login_form"):
+                username = st.text_input("اسم المستخدم")
+                password = st.text_input("كلمة المرور", type="password")
+
+                login_button = st.form_submit_button(
+                    "تسجيل الدخول",
+                    use_container_width=True
+                )
+
+            if login_button:
+                if not username.strip() or not password:
+                    st.error("أدخل اسم المستخدم وكلمة المرور.")
+
+                elif not valid_username(username):
+                    st.error(
+                        "اسم المستخدم يجب أن يكون من 3 إلى 20 حرفًا أو رقمًا أو شرطة سفلية."
+                    )
+
+                else:
+                    try:
+                        result = supabase.auth.sign_in_with_password({
+                            "email": username_to_email(username),
+                            "password": password
+                        })
+
+                        if result.session:
+                            save_session(
+                                result.session,
+                                normalize_username(username)
+                            )
+                            st.success("تم تسجيل الدخول بنجاح.")
+                            st.rerun()
+                        else:
+                            st.error("تعذر تسجيل الدخول. تحقق من بياناتك.")
+
+                    except Exception:
+                        st.error("اسم المستخدم أو كلمة المرور غير صحيحة.")
+
+        with tab_register:
+            st.subheader("إنشاء حساب جديد")
+
+            with st.form("register_form"):
+                new_username = st.text_input(
+                    "اسم المستخدم",
+                    help="من 3 إلى 20 حرفًا أو رقمًا أو شرطة سفلية."
+                )
+
+                new_password = st.text_input(
+                    "كلمة المرور",
+                    type="password"
+                )
+
+                confirm_password = st.text_input(
+                    "تأكيد كلمة المرور",
+                    type="password"
+                )
+
+                register_button = st.form_submit_button(
+                    "إنشاء الحساب",
+                    use_container_width=True
+                )
+
+            if register_button:
+                clean_username = normalize_username(new_username)
+
+                if not valid_username(new_username):
+                    st.error(
+                        "اسم المستخدم يجب أن يكون من 3 إلى 20 حرفًا أو رقمًا أو شرطة سفلية."
+                    )
+
+                elif len(new_password) < 8:
+                    st.error("كلمة المرور يجب ألا تقل عن 8 أحرف.")
+
+                elif new_password != confirm_password:
+                    st.error("كلمتا المرور غير متطابقتين.")
+
+                else:
+                    try:
+                        result = supabase.auth.sign_up({
+                            "email": username_to_email(clean_username),
+                            "password": new_password,
+                            "options": {
+                                "data": {
+                                    "username": clean_username
+                                }
+                            }
+                        })
+
+                        if result.session:
+                            save_session(result.session, clean_username)
+                            st.success("تم إنشاء حسابك بنجاح.")
+                            st.rerun()
+                        else:
+                            st.error(
+                                "لم يتم إنشاء جلسة دخول. تأكدي من تعطيل تأكيد البريد الإلكتروني في Supabase."
+                            )
+
+                    except Exception:
+                        st.error(
+                            "تعذر إنشاء الحساب. قد يكون اسم المستخدم مستخدمًا من قبل، أو توجد مشكلة في إعدادات Auth."
+                        )
+
+    st.divider()
+    st.caption("كل حساب لديه مساحة خاصة لمهامه وتحليلاته.")
+
+
+current_user = get_current_user()
+
+if current_user is None:
+    show_auth_page()
+    st.stop()
+
+
+user_id = str(current_user.id)
+username = st.session_state.get("username", "مستخدم")
+
+
+def load_tasks():
+    try:
+        result = (
+            supabase.table("tasks")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("task_id", desc=True)
+            .execute()
+        )
+
+        rows = result.data or []
+        df = pd.DataFrame(rows)
+
+        if df.empty:
+            return pd.DataFrame(columns=COLUMNS)
+
+        for column in COLUMNS:
+            if column not in df.columns:
+                df[column] = ""
+
+        df["task_id"] = pd.to_numeric(
+            df["task_id"],
+            errors="coerce"
+        )
+
+        df["estimated_minutes"] = pd.to_numeric(
+            df["estimated_minutes"],
+            errors="coerce"
+        ).fillna(0)
+
+        df["deleted_date"] = df["deleted_date"].fillna("")
+        df["completed_date"] = df["completed_date"].fillna("")
+
+        return df[COLUMNS]
+
+    except Exception:
+        st.error("تعذر تحميل المهام من قاعدة البيانات.")
+        st.stop()
+
+
+def add_task(task):
+    data = {
+        "user_id": user_id,
+        "task_name": task["task_name"],
+        "created_date": task["created_date"],
+        "due_date": task["due_date"],
+        "estimated_minutes": int(task["estimated_minutes"]),
+        "status": task["status"],
+        "completed_date": task["completed_date"] or None,
+        "category": task["category"],
+        "priority": task["priority"],
+        "deleted_date": task["deleted_date"] or None
+    }
+
+    supabase.table("tasks").insert(data).execute()
+
+
+def update_task(task_id, values):
+    supabase.table("tasks").update(values).eq(
+        "task_id",
+        int(task_id)
+    ).eq(
+        "user_id",
+        user_id
+    ).execute()
+
+
+def delete_task_permanently(task_id):
+    supabase.table("tasks").delete().eq(
+        "task_id",
+        int(task_id)
+    ).eq(
+        "user_id",
+        user_id
+    ).execute()
+
 
 def prepare_analysis_data(data):
-
     df = data.copy()
 
     status_map = {
@@ -290,42 +597,12 @@ def prepare_analysis_data(data):
         "exercise",
         "personal"
     ]:
-
         df[f"cat_{category}"] = (
             df["category"] == category
         ).astype(int)
 
     return df, category_columns
 
-
-# ==============================
-# تحويل مدة المهمة إلى نص
-# ==============================
-
-def show_duration(value):
-
-    try:
-        total = max(0, int(float(value)))
-    except (TypeError, ValueError):
-        total = 0
-
-    parts = []
-
-    if total // 1440:
-        parts.append(f"{total // 1440} يوم")
-
-    if (total % 1440) // 60:
-        parts.append(f"{(total % 1440) // 60} ساعة")
-
-    if total % 60:
-        parts.append(f"{total % 60} دقيقة")
-
-    return " و ".join(parts) if parts else "0 دقيقة"
-
-
-# ==============================
-# تحميل بيانات المستخدم
-# ==============================
 
 tasks = load_tasks()
 
@@ -345,16 +622,33 @@ incomplete_count = len(active_tasks) - completed_count
 
 completion_rate = (
     completed_count / len(active_tasks) * 100
-    if len(active_tasks) else 0
+    if len(active_tasks)
+    else 0
 )
 
 
-# ==============================
-# القائمة الرئيسية
-# ==============================
-
 st.title("Planner")
-st.caption("نظّم مهامك، تابع إنجازك، وخَلّ يومك أسهل")
+
+st.caption(
+    "نظّم مهامك، تابع إنجازك، وخَلّ يومك أسهل"
+)
+
+st.markdown(
+    f"""
+    <div style="
+        background-color:#F3EBDD;
+        color:#192B49;
+        padding:14px 18px;
+        border-radius:12px;
+        margin-bottom:15px;
+        font-size:18px;
+        font-weight:bold;
+    ">
+        أهلًا، {username} 💙
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 page = st.sidebar.radio(
     "القائمة الرئيسية",
@@ -367,10 +661,15 @@ page = st.sidebar.radio(
     ]
 )
 
+st.sidebar.divider()
+st.sidebar.write(f"أهلًا، {username}")
 
-# ==================================================
-# الصفحة الأولى: مهامي
-# ==================================================
+if st.sidebar.button(
+    "تسجيل الخروج",
+    use_container_width=True
+):
+    logout()
+
 
 if page == "مهامي":
 
@@ -406,7 +705,6 @@ if page == "مهامي":
     displayed = active_tasks.copy()
 
     if search:
-
         displayed = displayed[
             displayed["task_name"]
             .astype(str)
@@ -418,19 +716,16 @@ if page == "مهامي":
         ]
 
     if filter_status == "مكتملة":
-
         displayed = displayed[
             displayed["status"] == "complete"
         ]
 
     elif filter_status == "غير مكتملة":
-
         displayed = displayed[
             displayed["status"] == "incomplete"
         ]
 
     if filter_category != "الكل":
-
         displayed = displayed[
             displayed["category"] == filter_category
         ]
@@ -447,20 +742,17 @@ if page == "مهامي":
             st.subheader(str(task["task_name"]))
 
             st.write(
-                f"التصنيف: "
-                f"{CATEGORIES.get(task['category'], task['category'])}"
+                f"التصنيف: {CATEGORIES.get(task['category'], task['category'])}"
             )
 
             st.write(
-                f"الأولوية: "
-                f"{PRIORITIES.get(task['priority'], task['priority'])}"
+                f"الأولوية: {PRIORITIES.get(task['priority'], task['priority'])}"
             )
 
             st.write(f"تاريخ الاستحقاق: {task['due_date']}")
 
             st.write(
-                f"المدة المتوقعة: "
-                f"{show_duration(task['estimated_minutes'])}"
+                f"المدة المتوقعة: {show_duration(task['estimated_minutes'])}"
             )
 
             is_complete = task["status"] == "complete"
@@ -473,20 +765,22 @@ if page == "مهامي":
 
             if new_status != is_complete:
 
-                idx = tasks.index[
-                    tasks["task_id"] == task_id
-                ]
-
-                tasks.loc[idx, "status"] = (
-                    "complete" if new_status else "incomplete"
+                update_task(
+                    task_id,
+                    {
+                        "status": (
+                            "complete"
+                            if new_status
+                            else "incomplete"
+                        ),
+                        "completed_date": (
+                            datetime.now().isoformat()
+                            if new_status
+                            else None
+                        )
+                    }
                 )
 
-                tasks.loc[idx, "completed_date"] = (
-                    datetime.now().strftime("%Y-%m-%d %H:%M")
-                    if new_status else ""
-                )
-
-                save_tasks(tasks)
                 st.rerun()
 
             col1, col2 = st.columns(2)
@@ -496,15 +790,13 @@ if page == "مهامي":
                 key=f"delete_{task_id}"
             ):
 
-                idx = tasks.index[
-                    tasks["task_id"] == task_id
-                ]
-
-                tasks.loc[idx, "deleted_date"] = (
-                    datetime.now().strftime("%Y-%m-%d %H:%M")
+                update_task(
+                    task_id,
+                    {
+                        "deleted_date": datetime.now().isoformat()
+                    }
                 )
 
-                save_tasks(tasks)
                 st.rerun()
 
             if col2.button(
@@ -514,8 +806,6 @@ if page == "مهامي":
 
                 st.session_state["editing_task"] = task_id
                 st.rerun()
-
-    # تعديل المهمة
 
     if "editing_task" in st.session_state:
 
@@ -549,7 +839,8 @@ if page == "مهامي":
                     list(CATEGORIES),
                     index=(
                         list(CATEGORIES).index(task["category"])
-                        if task["category"] in CATEGORIES else 0
+                        if task["category"] in CATEGORIES
+                        else 0
                     ),
                     format_func=lambda x: CATEGORIES[x]
                 )
@@ -559,7 +850,8 @@ if page == "مهامي":
                     list(PRIORITIES),
                     index=(
                         list(PRIORITIES).index(task["priority"])
-                        if task["priority"] in PRIORITIES else 0
+                        if task["priority"] in PRIORITIES
+                        else 0
                     ),
                     format_func=lambda x: PRIORITIES[x]
                 )
@@ -584,35 +876,28 @@ if page == "مهامي":
             if save_edit:
 
                 if not new_name.strip():
-
                     st.error("اكتب اسم المهمة.")
 
                 else:
 
-                    idx = tasks.index[
-                        tasks["task_id"] == task_id
-                    ]
-
-                    tasks.loc[idx, "task_name"] = new_name.strip()
-                    tasks.loc[idx, "category"] = new_category
-                    tasks.loc[idx, "priority"] = new_priority
-                    tasks.loc[idx, "due_date"] = new_due.isoformat()
-                    tasks.loc[idx, "estimated_minutes"] = new_duration
-
-                    save_tasks(tasks)
+                    update_task(
+                        task_id,
+                        {
+                            "task_name": new_name.strip(),
+                            "category": new_category,
+                            "priority": new_priority,
+                            "due_date": new_due.isoformat(),
+                            "estimated_minutes": int(new_duration)
+                        }
+                    )
 
                     del st.session_state["editing_task"]
                     st.rerun()
 
             if st.button("إلغاء التعديل"):
-
                 del st.session_state["editing_task"]
                 st.rerun()
 
-
-# ==================================================
-# الصفحة الثانية: إضافة مهمة
-# ==================================================
 
 elif page == "إضافة مهمة":
 
@@ -673,48 +958,33 @@ elif page == "إضافة مهمة":
         )
 
         if not task_name.strip():
-
             st.error("اكتب اسم المهمة أولًا.")
 
         elif estimated_minutes == 0:
-
             st.error("أدخل مدة متوقعة للمهمة.")
 
         else:
 
-            new_id = (
-                int(tasks["task_id"].max()) + 1
-                if tasks["task_id"].notna().any()
-                else 1
-            )
-
             new_task = {
-                "task_id": new_id,
                 "task_name": task_name.strip(),
-                "created_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "created_date": datetime.now().isoformat(),
                 "due_date": due_date.isoformat(),
                 "estimated_minutes": estimated_minutes,
                 "status": "incomplete",
-                "completed_date": "",
+                "completed_date": None,
                 "category": category,
                 "priority": priority,
-                "deleted_date": ""
+                "deleted_date": None
             }
 
-            tasks = pd.concat(
-                [tasks, pd.DataFrame([new_task])],
-                ignore_index=True
-            )
+            try:
+                add_task(new_task)
+                st.success("تمت إضافة المهمة بنجاح.")
+                st.rerun()
 
-            save_tasks(tasks)
+            except Exception:
+                st.error("تعذر حفظ المهمة. حاول مرة أخرى.")
 
-            st.success("تمت إضافة المهمة بنجاح.")
-            st.rerun()
-
-
-# ==================================================
-# الصفحة الثالثة: سلة المحذوفات
-# ==================================================
 
 elif page == "سلة المحذوفات":
 
@@ -741,13 +1011,11 @@ elif page == "سلة المحذوفات":
                     key=f"restore_{task_id}"
                 ):
 
-                    idx = tasks.index[
-                        tasks["task_id"] == task_id
-                    ]
+                    update_task(
+                        task_id,
+                        {"deleted_date": None}
+                    )
 
-                    tasks.loc[idx, "deleted_date"] = ""
-
-                    save_tasks(tasks)
                     st.rerun()
 
                 if col2.button(
@@ -755,23 +1023,13 @@ elif page == "سلة المحذوفات":
                     key=f"permanent_{task_id}"
                 ):
 
-                    tasks = tasks[
-                        tasks["task_id"] != task_id
-                    ]
-
-                    save_tasks(tasks)
+                    delete_task_permanently(task_id)
                     st.rerun()
 
-
-# ==================================================
-# الصفحة الرابعة: التحليلات الشخصية
-# ==================================================
 
 elif page == "تحليل البيانات":
 
     st.header("التحليلات الشخصية")
-
-   
 
     if active_tasks.empty:
 
@@ -786,12 +1044,12 @@ elif page == "تحليل البيانات":
         ).copy()
 
         total = len(valid)
-
         completed = int(valid["target"].sum())
 
         rate = (
             completed / total * 100
-            if total else 0
+            if total
+            else 0
         )
 
         c1, c2, c3 = st.columns(3)
@@ -815,6 +1073,12 @@ elif page == "تحليل البيانات":
         if not category_analysis.empty:
 
             st.subheader("نسبة الإنجاز حسب التصنيف")
+
+            category_analysis.index = [
+                CATEGORIES.get(x, x)
+                for x in category_analysis.index
+            ]
+
             st.bar_chart(category_analysis)
 
         priority_analysis = (
@@ -827,6 +1091,12 @@ elif page == "تحليل البيانات":
         if not priority_analysis.empty:
 
             st.subheader("نسبة الإنجاز حسب الأولوية")
+
+            priority_analysis.index = [
+                PRIORITIES.get(x, x)
+                for x in priority_analysis.index
+            ]
+
             st.bar_chart(priority_analysis)
 
         completed_df = valid[
@@ -859,15 +1129,14 @@ elif page == "تحليل البيانات":
             st.bar_chart(daily)
 
 
-# ==================================================
-# الصفحة الخامسة: التوقعات والتوصيات
-# ==================================================
-
 elif page == "التوقعات والتوصيات":
 
     st.header("التوقعات والتوصيات")
 
-   
+    st.info(
+        "النموذج يتعلم من بيانات الفريق الموجودة في training_tasks.csv فقط. "
+        "لن تُضاف مهام حسابك الشخصية إلى بيانات التدريب."
+    )
 
     try:
 
@@ -879,19 +1148,14 @@ elif page == "التوقعات والتوصيات":
     except FileNotFoundError:
 
         st.error(
-            "ملف training_tasks.csv غير موجود. "
-            "أضيفيه إلى المستودع بجانب app.py."
+            "ملف training_tasks.csv غير موجود. أضيفيه إلى المستودع بجانب app.py."
         )
 
         st.stop()
 
     except pd.errors.EmptyDataError:
 
-        st.error(
-            "ملف training_tasks.csv فارغ. "
-            "تأكدي من رفع بيانات التدريب الصحيحة."
-        )
-
+        st.error("ملف training_tasks.csv فارغ.")
         st.stop()
 
     required = [
@@ -906,15 +1170,15 @@ elif page == "التوقعات والتوصيات":
     ]
 
     missing = [
-        column for column in required
+        column
+        for column in required
         if column not in training_data.columns
     ]
 
     if missing:
 
         st.error(
-            "أعمدة ناقصة في ملف التدريب: "
-            + ", ".join(missing)
+            "أعمدة ناقصة في ملف التدريب: " + ", ".join(missing)
         )
 
         st.stop()
@@ -986,11 +1250,8 @@ elif page == "التوقعات والتوصيات":
     )
 
     st.caption(
-        "الدقة تقيس أداء النموذج على عينة اختبار تاريخية، "
-        "ولا تضمن إنجاز مهمة مستقبلية."
+        "الدقة تقيس أداء النموذج على عينة اختبار تاريخية، ولا تضمن إنجاز مهمة مستقبلية."
     )
-
-    # العوامل المؤثرة
 
     st.subheader("أهم العوامل المؤثرة على الإنجاز")
 
@@ -1035,8 +1296,6 @@ elif page == "التوقعات والتوصيات":
     )
 
     st.divider()
-
-    # توقع مهمة جديدة
 
     st.subheader("توقع مهمة جديدة")
 
@@ -1134,9 +1393,7 @@ elif page == "التوقعات والتوصيات":
 
         probability = model.predict_proba(new_task)[0]
 
-        complete_index = list(
-            model.classes_
-        ).index(1)
+        complete_index = list(model.classes_).index(1)
 
         completion_probability = (
             probability[complete_index] * 100
@@ -1162,20 +1419,20 @@ elif page == "التوقعات والتوصيات":
         elif completion_probability >= 40:
 
             st.warning(
-                "احتمال الإنجاز متوسط. "
-                "قد يفيدك تنظيم الوقت وتقسيم المهمة."
+                "احتمال الإنجاز متوسط. قد يفيدك تنظيم الوقت وتقسيم المهمة."
             )
 
         else:
 
             st.warning(
-                "احتمال الإنجاز منخفض وفقًا للبيانات التاريخية. "
-                "جرّب تقسيم المهمة."
+                "احتمال الإنجاز منخفض وفقًا للبيانات التاريخية. جرّب تقسيم المهمة."
             )
 
-    st.divider()
+        st.caption(
+            "هذا تقدير إحصائي مبني على بيانات التدريب، وليس قياسًا شخصيًا مؤكدًا لقدرتك على الإنجاز."
+        )
 
-    # توصيات الفريق
+    st.divider()
 
     st.subheader("توصيات مستخلصة من بيانات الفريق")
 
@@ -1214,7 +1471,9 @@ elif page == "التوقعات والتوصيات":
         period_df.groupby(
             "period",
             observed=False
-        )["target"].mean().dropna()
+        )["target"]
+        .mean()
+        .dropna()
     )
 
     if not period_rates.empty:
