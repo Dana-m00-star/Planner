@@ -397,7 +397,7 @@ def show_auth_page():
 
                     except Exception as e:
                         st.error(f"تعذر إنشاء الحساب: {str(e)}")
-                         )
+                         
 
     st.divider()
     st.caption("كل حساب لديه مساحة خاصة لمهامه وتحليلاته.")
