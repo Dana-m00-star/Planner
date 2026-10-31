@@ -667,7 +667,7 @@ st.markdown(
         font-size:18px;
         font-weight:bold;
     ">
-        💙 أهلًا، {username}
+        the key is not to spend time , but to invest it💙
     </div>
     """,
     unsafe_allow_html=True
